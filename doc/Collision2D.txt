@@ -1,0 +1,45 @@
+Collision2D.cpp - Como a implementação foi feita
+=================================================
+
+Arquivo: source/Collision2D.cpp
+Contrato: Collision2D.hpp
+
+O arquivo implementa os dois métodos declarados no header: AABB::intersects
+e Collision2D::bounds. Valores como TILE_SIZE e EPSILON vêm de Global.hpp e
+não são redefinidos aqui, conforme a regra desse arquivo.
+
+1. AABB::intersects(other)
+   - Usa o teste de eixo separador (SAT) para caixas alinhadas aos eixos:
+     duas caixas NÃO se sobrepõem se, em algum eixo, uma está inteiramente
+     de um lado da outra. Caso contrário, elas se sobrepõem.
+   - Em código: min.x <= other.max.x && other.min.x <= max.x &&
+                min.y <= other.max.y && other.min.y <= max.y
+   - O contrato diz "touching edges count as overlapping"; por isso foi
+     usado <= e não <. Caixas que só encostam numa aresta ou num canto
+     retornam true.
+   - O teste é simétrico (a.intersects(b) == b.intersects(a)) e também
+     funciona quando uma caixa está totalmente dentro da outra.
+   - Não depende da direção do eixo Y: em Global.hpp o Y cresce para baixo,
+     mas min continua sendo o menor y (canto superior esquerdo) e max o maior
+     (canto inferior direito), então as comparações são as mesmas.
+
+2. Collision2D::bounds(position)
+   - Retorna { position - halfExtents , position + halfExtents }, exatamente
+     como o @return do contrato. Usa os operadores + e - de Vector2D.
+   - Com halfExtents padrão (TILE_SIZE/2, TILE_SIZE/2) = (32, 32), o
+     resultado é um quadrado 64 x 64 centrado na posição da entidade.
+   - Com halfExtents não negativos, o invariante do AABB
+     (min.x <= max.x e min.y <= max.y) é garantido.
+
+Ambos os métodos são noexcept, como no header, e não fazem alocação.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic sem warnings. Foram
+verificados:
+  - bounds((32,32)) com o tamanho padrão gera a caixa (0,0)-(64,64);
+  - caixas sobrepostas -> true;
+  - caixas encostando numa aresta e num canto -> true;
+  - caixas separadas por 0.5 px em x ou em y -> false;
+  - caixa contida dentro de outra -> true, nos dois sentidos;
+  - halfExtents personalizado (10,5) gera (-10,-5)-(10,5).
