@@ -1,0 +1,64 @@
+Transform2D.cpp - Como a implementação foi feita
+=================================================
+
+Arquivo: source/Transform2D.cpp
+Contrato: Transform2D.hpp
+
+O header define a convenção de matriz (estilo DirectX), e toda a
+implementação segue essa convenção:
+  - armazenamento ROW-MAJOR, m[linha][coluna];
+  - vetores são vetores LINHA (v * M);
+  - ponto = [x, y, 1], direção = [x, y, 0];
+  - a TRANSLAÇÃO fica na TERCEIRA LINHA: m[2][0] = tx, m[2][1] = ty;
+  - a terceira coluna é sempre [0, 0, 1]^T.
+
+1. Fábricas (translation, rotation, scale)
+   - Todas partem da identidade (o construtor padrão já inicializa m como
+     identidade) e alteram apenas as entradas necessárias.
+   - translation(tx, ty): m[2][0] = tx, m[2][1] = ty (terceira linha, e não
+     terceira coluna como na convenção de vetores coluna).
+   - rotation(a): usa exatamente a matriz do comentário do header:
+         m[0][0] =  cos(a)   m[0][1] = sin(a)
+         m[1][0] = -sin(a)   m[1][1] = cos(a)
+     Com vetores linha, isso faz ângulo positivo girar no sentido
+     anti-horário: (1,0) girado 90 graus vira (0,1).
+   - scale(sx, sy): m[0][0] = sx, m[1][1] = sy.
+   - Como só são alteradas as duas primeiras colunas das linhas 0-1 e as duas
+     primeiras entradas da linha 2, a terceira coluna continua [0,0,1]^T
+     (invariante do contrato).
+
+2. operator*(rhs)
+   - Produto de matrizes padrão: result[i][j] = soma_k m[i][k] * rhs.m[k][j].
+   - Como v * (A * B) == (v * A) * B, o resultado A * B aplica A PRIMEIRO e
+     depois B, exatamente como o contrato pede ("applying *this FIRST, then
+     rhs"). Composições são lidas da ESQUERDA PARA A DIREITA.
+   - O produto de duas matrizes com terceira coluna [0,0,1]^T também tem
+     terceira coluna [0,0,1]^T, então o invariante é preservado.
+
+3. operator*=(rhs)
+   - *this = *this * rhs. O produto é calculado em um objeto temporário antes
+     da atribuição, porque cada entrada do resultado lê várias entradas de
+     *this; escrever direto em m corromperia o cálculo.
+
+4. transform_point(p)  -> [p.x, p.y, 1] * M
+   - x' = p.x*m[0][0] + p.y*m[1][0] + m[2][0]
+   - y' = p.x*m[0][1] + p.y*m[1][1] + m[2][1]
+   - Como w = 1, a terceira linha (translação) é somada.
+   - A terceira coordenada resultante seria sempre 1 (terceira coluna
+     [0,0,1]^T), então não é necessário dividir por w.
+
+5. transform_vector(d)  -> [d.x, d.y, 0] * M
+   - Mesma conta, mas sem a terceira linha: como w = 0, a translação NÃO é
+     aplicada. Direções só são afetadas por rotação e escala.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic sem warnings. Foram
+verificados:
+  - rotation(pi/2) leva (1,0) em (0,1)  (sentido anti-horário);
+  - translation(10,0) move o ponto (1,0) para (11,0), mas não altera a
+    direção (1,0);
+  - (R * T) aplica a rotação primeiro: (1,0) -> (10,1);
+  - (T * R) aplica a translação primeiro: (1,0) -> (0,11);
+  - operator*= com escala seguida de translação, e que a terceira coluna
+    continua [0,0,1]^T.
