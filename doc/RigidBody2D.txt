@@ -1,0 +1,46 @@
+RigidBody2D.cpp - Como a implementação foi feita
+=================================================
+
+Arquivo: source/RigidBody2D.cpp
+Contrato: RigidBody2D.hpp
+
+O header define um corpo como um ponto de massa com position (pixels),
+velocity (pixels/s) e acceleration (pixels/s^2). O único método a
+implementar é integrate(dt).
+
+1. integrate(dt) - Euler semi-implícito (simplético)
+   - Segue exatamente a ordem pedida no comentário do header:
+         velocity += acceleration * dt;
+         position += velocity     * dt;
+   - A ordem importa: a posição é atualizada com a velocidade JÁ
+     atualizada. Isso é o que diferencia o Euler semi-implícito do Euler
+     explícito (que usaria a velocidade antiga) e o torna estável para
+     simulação interativa.
+   - Usa os operadores += e * de Vector2D, já implementados em Vector2D.cpp.
+   - Não guarda estado extra; com dt fixo (como o header determina), o
+     movimento é reproduzível: as mesmas entradas geram sempre as mesmas
+     saídas.
+
+2. Pré-condição dt > 0
+   - O método é noexcept no header, então NÃO pode lançar exceção (ao
+     contrário de Vector2D::normalized, que não é noexcept).
+   - Por isso a pré-condição é tratada de duas formas:
+       a) assert(dt > 0): em build de debug, a violação aborta o programa
+          com uma mensagem, mostrando o erro de quem chamou;
+       b) if (!(dt > 0)) return;: em build de release (NDEBUG, assert
+          desativado), o passo é simplesmente ignorado e o corpo fica
+          inalterado, em vez de andar "para trás no tempo" com dt negativo.
+   - A condição foi escrita como !(dt > 0) para que um dt NaN também seja
+     rejeitado.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic sem warnings. Foram
+verificados:
+  - um passo com dt = 0.5, v = (10,0), a = (0,100):
+    v vira (10,50) e p vira (5,25), confirmando que a posição usa a
+    velocidade nova;
+  - quatro passos com dt = 1 e a = (0,10): v = 10, 20, 30, 40 e
+    p = 10, 30, 60, 100 (valores exatos do Euler semi-implícito);
+  - debug: dt = -1 dispara o assert;
+  - release (-DNDEBUG): dt = -1 e dt = 0 não alteram o corpo.
