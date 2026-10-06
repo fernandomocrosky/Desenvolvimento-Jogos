@@ -1,0 +1,54 @@
+Vector2D.cpp - Como a implementação foi feita
+==============================================
+
+Arquivo: source/Vector2D.cpp
+Contrato: Vector2D.hpp
+
+O header já implementa inline os métodos constexpr (length_squared, dot,
+cross) e length(). O arquivo .cpp implementa os demais métodos declarados.
+
+1. normalized()
+   - Calcula length() uma única vez e divide x e y por esse valor.
+   - Pré-condição do contrato: length() > EPSILON (o vetor nulo não tem
+     direção). Como o método NÃO é noexcept no header, a violação da
+     pré-condição é sinalizada lançando std::domain_error.
+   - A condição foi escrita como !(len > EPSILON) para que um comprimento NaN
+     também seja rejeitado.
+   - Pós-condição: dividir pelo próprio comprimento resulta em vetor unitário,
+     então |result.length() - 1| < EPSILON é satisfeito.
+
+2. normalize()
+   - Reaproveita normalized(): *this = normalized(). Assim a verificação da
+     pré-condição fica em um único lugar e, em caso de erro, o vetor não é
+     modificado (a exceção é lançada antes da atribuição).
+
+3. equals(rhs, tolerance)
+   - Compara componente a componente: |x - rhs.x| <= tolerance e
+     |y - rhs.y| <= tolerance. O valor padrão da tolerância é EPSILON
+     (definido em Global.hpp), conforme o header.
+
+4. Operadores aritméticos (+, -, * escalar)
+   - Retornam um novo Vector2D com a operação feita em cada componente.
+   - São noexcept, como no contrato.
+
+5. operator/(scalar) e operator/=(scalar)
+   - Pré-condição: |scalar| > EPSILON. Também não são noexcept no header,
+     então a violação lança std::domain_error.
+   - operator/= é implementado em termos de operator/ (*this = *this / scalar),
+     então a checagem existe só em um lugar e o objeto fica inalterado se a
+     exceção for lançada.
+
+6. Operadores compostos (+=, -=, *=)
+   - Alteram x e y no próprio objeto e retornam *this por referência, para
+     permitir encadeamento.
+
+7. operator*(float scalar, const Vector2D& vec) (função livre)
+   - Multiplicação com o escalar à esquerda; delega para vec * scalar, já que
+     a multiplicação por escalar é comutativa.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic sem warnings. Foram
+verificados: comprimento de (3,4) = 5, normalized de (3,4) = (0.6, 0.8),
+exceção ao normalizar o vetor nulo, exceção ao dividir por zero e a
+multiplicação escalar à esquerda.
