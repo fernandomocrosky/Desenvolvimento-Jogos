@@ -1,2 +1,7 @@
 build/
 .idea/
+app/
+output/
+build.sh
+doc/main.txt
+.gitattributes
