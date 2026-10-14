@@ -1,0 +1,104 @@
+Dungeon2D.cpp - Como a implementação foi feita
+===============================================
+
+Arquivo: source/Dungeon2D.cpp
+Contrato: Dungeon2D.hpp
+
+O header pede um gerador BSP (Binary Space Partitioning) que produza a
+geometria explícita do dungeon: uma árvore de salas (root) e uma lista de
+corredores (corridors). Tudo em unidades de TILE, não pixels. Transformar
+isso em matriz é trabalho do TileMap, então o Dungeon2D não conhece tiles,
+paredes ou CSV.
+
+0. Convenção do Rect
+   O header diz que (left, top) e (right, bottom) são os cantos do
+   retângulo, com left <= right e top <= bottom. Interpretei os cantos como
+   CÉLULAS INCLUSIVAS: um Rect ocupa (right - left + 1) x (bottom - top + 1)
+   tiles. Assim um Rect com left == right é válido (1 tile de largura), e
+   "sala 5 x 5" significa right - left + 1 = 5. O TileMap usa a mesma
+   convenção ao rasterizar.
+
+1. Construtor Dungeon2D(widthTiles, heightTiles)
+   - Guarda width e height.
+   - O contrato exige valores > 0; como o construtor não é noexcept, a
+     violação lança std::invalid_argument.
+
+2. generate(seed) - visão geral
+   - Cria a raiz cobrindo o dungeon inteiro: Rect{0, 0, width-1, height-1}.
+   - Chama build(), que divide recursivamente, cria as salas e os
+     corredores.
+   - Tudo é montado em variáveis locais e só no final é movido para root e
+     corridors. Chamar generate() de novo substitui completamente o dungeon
+     anterior.
+   - Se o dungeon for menor que 7 x 7, não há espaço para a menor sala
+     (5 x 5) com parede em volta, e então é lançado std::invalid_argument.
+
+3. Mesma seed -> mesmo dungeon
+   - Usa std::mt19937 inicializado com a seed.
+   - Detalhe importante: a sequência do std::mt19937 é fixada pelo padrão
+     C++, mas std::uniform_int_distribution NÃO é (cada compilador pode
+     gerar números diferentes). Por isso os números aleatórios são tirados
+     direto do motor com randRange(lo, hi) = lo + rng() % (hi - lo + 1).
+     Assim a mesma seed gera o mesmo dungeon em qualquer compilador.
+
+4. Particionamento (BSP)
+   - Constantes:
+       MIN_ROOM_SIZE = 5   (menor sala, exigida pelo contrato)
+       ROOM_MARGIN   = 1   (parede entre a sala e a borda da região)
+       MIN_REGION    = 7   (5 + 1 de cada lado: menor região folha)
+       MAX_LEAF      = 16, STOP_PERCENT = 40
+   - Uma região pode ser cortada na vertical se tiver largura >= 14
+     (2 x MIN_REGION), e na horizontal se tiver altura >= 14. Assim os dois
+     filhos sempre têm pelo menos 7 tiles e cabem uma sala 5 x 5.
+   - Se nenhum corte é possível, o nó vira folha. Se a região já é pequena
+     (<= 16 x 16), ela também pode virar folha com 40% de chance. Isso
+     varia o tamanho das salas.
+   - A direção do corte prefere o lado mais longo (quando um lado é 25%
+     maior que o outro), para as regiões não ficarem muito finas. Caso
+     contrário, a direção é sorteada.
+   - Os filhos são criados com std::make_unique, então a árvore é dona dos
+     filhos, como o header pede (destruir root libera tudo).
+
+5. Salas (folhas)
+   - Cada folha recebe uma sala de tamanho sorteado entre 5 e
+     (tamanho da região - 2), em posição sorteada, sempre com 1 tile de
+     parede até a borda da região.
+   - Consequências: a sala mínima é 5 x 5; salas de regiões vizinhas têm
+     pelo menos 2 tiles de parede entre elas; e o dungeon inteiro fica
+     cercado por parede.
+   - Nós internos não usam o campo room (fica zerado), como diz o header.
+
+6. Corredores (3 tiles de largura) e conectividade
+   - Depois de construir os dois filhos de um nó interno, connectChildren()
+     liga os dois lados: pega a sala da subárvore esquerda e a da direita
+     cujos centros estão mais próximos.
+   - A ligação é em "L": um trecho horizontal e um vertical (a ordem é
+     sorteada). Cada trecho é um Corridor de exatamente 3 tiles de largura,
+     centrado na linha que liga os centros (centro - 1 até centro + 1).
+     Se os centros estão alinhados, só um trecho é criado.
+   - Os dois trechos se sobrepõem no cotovelo do "L", então o caminho é
+     contínuo. Começa dentro de uma sala e termina dentro da outra.
+   - CONECTIVIDADE (exigida pelo contrato), por indução:
+       * uma folha (uma sala) é conectada;
+       * se as duas subárvores de um nó já são conectadas, o corredor que
+         liga uma sala de cada lado conecta o nó inteiro.
+     Logo a raiz é conectada: toda sala alcança todas as outras.
+   - Os corredores nunca saem do mapa: o centro de uma sala está a pelo
+     menos 3 tiles da borda, e o corredor ocupa só ±1 em volta da linha.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic -Wshadow -Wconversion
+sem warnings, e testado com AddressSanitizer/UBSan. Foram gerados 1400
+dungeons (larguras de 7 a 123, alturas de 7 a 60, 40 seeds cada), e em
+todos foi verificado:
+  - toda sala tem pelo menos 5 x 5 e fica dentro da sua região, com parede
+    em volta;
+  - todo corredor tem exatamente 3 tiles de largura e está dentro do mapa;
+  - flood fill a partir da primeira sala alcança TODAS as células vazias
+    (conectividade);
+  - a mesma seed gera exatamente o mesmo mapa, inclusive chamando
+    generate() de novo no mesmo objeto;
+  - seeds diferentes geram mapas diferentes;
+  - dimensões <= 0 no construtor e dungeon menor que 7 x 7 lançam
+    std::invalid_argument.

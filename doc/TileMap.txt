@@ -1,0 +1,99 @@
+TileMap.cpp - Como a implementação foi feita
+=============================================
+
+Arquivo: source/TileMap.cpp
+Contrato: TileMap.hpp (e as convenções de Global.hpp)
+
+A matriz é um std::vector<int> em ordem ROW-MAJOR: o índice da célula
+(col, row) é row * width + col. Os valores são EMPTY_TILE e WALL_TILE, de
+Global.hpp, que não são redefinidos aqui.
+
+1. loadFromDungeon(dungeon)
+   - Segue a ordem do contrato:
+       a) dimensiona a matriz com dungeon.width x dungeon.height;
+       b) preenche tudo com WALL_TILE;
+       c) percorre a árvore BSP recursivamente e, em cada FOLHA, "cava"
+          (EMPTY_TILE) o retângulo da sala;
+       d) cava cada corredor da lista dungeon.corridors.
+   - Rects são tratados como cantos inclusivos, a mesma convenção usada no
+     Dungeon2D.cpp: as células de left até right e de top até bottom.
+   - fillRect limita o retângulo às bordas do mapa, por segurança.
+   - Se o dungeon ainda não foi gerado (root nulo), o resultado é um mapa
+     todo de parede.
+   - A matriz é montada numa variável local e só depois movida para os
+     membros.
+
+2. saveCSV(path)
+   - Uma linha por row (row 0 primeiro), valores separados por UMA vírgula,
+     SEM vírgula no final, exatamente como o contrato pede. Cada linha
+     termina com '\n'.
+   - O arquivo é aberto em modo binário para que o '\n' não vire "\r\n" no
+     Windows: o formato fica idêntico em qualquer sistema.
+   - Retorna false se o arquivo não puder ser aberto ou se a escrita
+     falhar.
+
+3. loadCSV(path)
+   - Lê linha por linha e interpreta cada uma com std::from_chars, que só
+     aceita inteiros válidos (sem espaços, sem '+', sem lixo, e detecta
+     overflow).
+   - É rígido com o formato do saveCSV(). Falha se houver:
+       * campo vazio (vírgula no final ou ",,");
+       * algo que não seja inteiro;
+       * linhas com números de colunas diferentes;
+       * linha vazia no meio do arquivo.
+   - Duas tolerâncias: aceita "\r\n" no fim da linha (arquivo editado no
+     Windows ou convertido pelo git) e a última linha sem '\n'.
+   - "On failure the map is left unchanged": tudo é lido em variáveis
+     locais, e os membros só são alterados depois que o arquivo inteiro foi
+     validado.
+   - Um arquivo vazio é aceito como mapa 0 x 0, que é exatamente o que
+     saveCSV() grava para um mapa vazio.
+
+4. width(), height(), data()
+   - Retornam m_width, m_height e m_cells.data() (ponteiro row-major com
+     width*height valores).
+
+5. at(col, row) e isWall(col, row)
+   - Pré-condição: índices dentro do mapa. Como os métodos não são
+     noexcept, a violação lança std::out_of_range.
+   - isWall reutiliza at() (a checagem fica num lugar só) e compara com
+     WALL_TILE.
+
+6. toIndices(world, col, row)
+   - Fórmula de Global.hpp: col = floor(x / TILE_SIZE),
+     row = floor(y / TILE_SIZE).
+   - Usa std::floor, e não um simples cast para int: o cast arredonda em
+     direção ao zero e daria col = 0 para x = -10, quando o certo é -1.
+
+7. toWorld(col, row)
+   - Centro da célula, também de Global.hpp:
+     ((col + 0.5) * TILE_SIZE, (row + 0.5) * TILE_SIZE).
+   - toIndices(toWorld(c, r)) devolve sempre (c, r).
+
+8. randomEmptyCell(col, row)
+   - Junta os índices de todas as células EMPTY_TILE e sorteia um, com
+     probabilidade igual para todas.
+   - Pré-condição: existe pelo menos uma célula vazia. Se não existir, lança
+     std::logic_error.
+   - Como o header não recebe seed, usa um std::mt19937 thread_local
+     inicializado por std::random_device. Isso não afeta a reprodutibilidade
+     do dungeon, que depende só da seed passada ao Dungeon2D::generate.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic -Wshadow -Wconversion
+sem warnings, e testado com AddressSanitizer/UBSan. Foram verificados:
+  - mapa com o mesmo tamanho do dungeon; salas e corredores vazios; bordas
+    todas parede;
+  - CSV gravado sem ",\n" nem ",,", com uma linha por row;
+    salvar -> carregar devolve a mesma matriz;
+  - CSV com "\r\n" e sem '\n' final é aceito;
+  - CSV com vírgula final, campo vazio, linhas de tamanhos diferentes,
+    letras, espaço, '+', overflow ou linha em branco falha, e o mapa
+    continua igual;
+  - arquivo inexistente e diretório inválido retornam false;
+  - toIndices com coordenadas positivas, na borda da célula e negativas;
+    toWorld(0,0) = (32,32);
+  - at/isWall fora do mapa lançam std::out_of_range; randomEmptyCell em
+    mapa sem célula vazia lança std::logic_error e, nos outros casos,
+    sempre devolve uma célula vazia.
