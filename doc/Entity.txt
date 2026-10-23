@@ -1,0 +1,50 @@
+Entity - Como a implementação foi feita
+========================================
+
+Arquivo: source/Entity.hpp (não há Entity.cpp)
+
+1. Por que não existe Entity.cpp
+   O contrato já traz tudo definido no próprio header:
+     - os campos têm valores padrão (active{true}, id{0}), e body e
+       collision usam os construtores padrão de RigidBody2D e Collision2D;
+     - o destrutor é "virtual ~Entity() = default;";
+     - bounds() já tem corpo (é inline).
+   Não sobra nenhum método só declarado, então um Entity.cpp ficaria vazio.
+
+2. O que a Entity é
+   - COMPOSIÇÃO: uma Entity "tem" um RigidBody2D (body: posição,
+     velocidade, aceleração) e um Collision2D (collision: meia-largura e
+     meia-altura). Os dois são públicos, então quem usa lê e escreve
+     direto: entity.body.position, entity.collision.halfExtents etc.
+   - active: enquanto for false, a simulação e a colisão devem ignorar a
+     entidade. Quem respeita isso são os laços do jogo; a Entity só guarda
+     a flag.
+   - id: identificador numérico, do tipo EntityId definido em Global.hpp.
+     0 significa "ainda não atribuído". O Global.hpp reserva PLAYER_ID
+     (100) para o jogador, e os ids gerados começam em INITIAL_ENTITY_ID
+     (1000).
+
+3. bounds()
+   - Retorna collision.bounds(body.position): a caixa (AABB) da entidade no
+     mundo, centrada na posição atual do corpo.
+   - Como é calculada na hora, a caixa sempre acompanha o corpo. Depois de
+     body.integrate(dt), bounds() já reflete a nova posição.
+
+4. Destrutor virtual
+   - Entity é base de outras classes (o NPC herda dela). Com o destrutor
+     virtual, apagar um objeto derivado por um ponteiro de Entity, por
+     exemplo um std::unique_ptr<Entity> apontando para um NPC, chama o
+     destrutor certo e libera também os campos do derivado (o sprite do
+     NPC).
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic e AddressSanitizer/
+UBSan. Foram verificados:
+  - valores padrão: active = true, id = 0, halfExtents = (32, 32), ou seja,
+    uma caixa de 64 x 64 (TILE_SIZE);
+  - com a posição em (100, 50), bounds() = (68, 18)-(132, 82);
+  - depois de integrate(0.5) com velocidade (64, 0), bounds() andou 32 px;
+  - duas entidades encostadas: bounds().intersects() = true;
+  - std::has_virtual_destructor<Entity> = true, e apagar um derivado por
+    unique_ptr<Entity> executa o destrutor do derivado.

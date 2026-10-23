@@ -1,0 +1,53 @@
+NPC - Como a implementação foi feita
+=====================================
+
+Arquivo: source/NPC.hpp (não há NPC.cpp)
+Depende de: Entity.hpp e SFML 2.x (<SFML/Graphics.hpp>)
+
+1. Por que não existe NPC.cpp
+   O NPC é só uma struct com um campo novo (sprite). Ele não declara
+   nenhum método, e o construtor e o destrutor são os gerados pelo
+   compilador. Não há nada para implementar num .cpp.
+
+2. O que o NPC é
+   - HERANÇA: "struct NPC : Entity". Um NPC É uma Entity, então tem body,
+     collision, active, id e bounds(), e pode ser usado onde se espera uma
+     Entity (Entity& ou um ponteiro para Entity).
+   - Acrescenta um sf::Sprite público. Como diz o contrato, o laço do jogo
+     lê e escreve o sprite direto a cada frame, para posicionar e desenhar
+     o NPC.
+
+3. Posição do sprite x posição do corpo
+   - body.position é o CENTRO da entidade (o Collision2D monta a caixa em
+     volta dele).
+   - O sf::Sprite do SFML é posicionado pelo canto superior esquerdo.
+   - Por isso, ao desenhar, o sprite vai em body.position -
+     collision.halfExtents. Com o tamanho padrão de 64 x 64, isso é a
+     posição menos (32, 32). O teste2.cpp faz exatamente isso.
+
+4. Versão do SFML
+   - O NPC.hpp declara "sf::Sprite sprite;" sem argumentos. Isso exige o
+     SFML 2.x, em que sf::Sprite tem construtor padrão.
+   - No SFML 3, sf::Sprite precisa de uma textura no construtor, e o
+     NPC.hpp não compilaria. Testado com o SFML 2.6.1 do Ubuntu
+     (libsfml-dev).
+   - O sprite começa sem textura. Antes de desenhar, é preciso chamar
+     sprite.setTexture(...), e a textura precisa continuar existindo
+     enquanto o sprite for usado (o sprite só guarda um ponteiro para
+     ela).
+
+5. Destruição
+   - Como o destrutor da Entity é virtual, apagar um NPC por um ponteiro
+     de Entity também destrói o sprite corretamente.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic com o SFML 2.6.1.
+Foram verificados:
+  - NPC herda de Entity (std::is_base_of) e mantém os valores padrão
+    (active = true);
+  - usando o NPC como Entity&, bounds() funciona normalmente;
+  - sprite.setPosition / getPosition funcionam no campo público;
+  - apagar um derivado de NPC por unique_ptr<Entity> chama o destrutor do
+    derivado;
+  - no teste2.cpp, três NPCs são desenhados e movidos numa janela SFML.
