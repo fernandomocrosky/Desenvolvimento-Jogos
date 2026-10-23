@@ -1,0 +1,38 @@
+teste.cpp - Como a implementação foi feita
+===========================================
+
+Arquivo: source/teste.cpp
+Usa: BehaviorTree (BehaviorTree.hpp / BehaviorTree.cpp)
+
+O arquivo original era um trecho de pseudocódigo do professor: a árvore da
+"porta" e um contexto, sem includes nem main(), e por isso não compilava.
+Ele foi transformado num programa de terminal completo, mantendo a árvore
+exatamente igual.
+
+1. O que foi acrescentado
+   - #include "BehaviorTree.hpp" e <iostream>, e a função main().
+   - O contexto ganhou o tipo da biblioteca: BTContext context = {...}.
+   - Nada mais foi alterado na árvore: os mesmos nós, na mesma ordem.
+
+2. Resultado do contexto do enunciado
+   {NaPorta=1, PortaTrancada=1, PortaFechada=1}  ->  DestranquePorta
+   Por quê, seguindo o Selector de cima para baixo:
+     - "Passou" não está no contexto            -> falha;
+     - "PortaAberta" não está                   -> falha;
+     - "PortaDestrancada" não está              -> falha;
+     - NaPorta e PortaTrancada são verdadeiras  -> SUCESSO: DestranquePorta.
+
+3. Travessia completa (extra)
+   Para mostrar a árvore funcionando do começo ao fim, o programa também
+   avalia a mesma árvore em cada etapa, como um NPC faria tick a tick:
+     longe da porta                -> CaminhePorta
+     na porta, trancada            -> DestranquePorta
+     na porta, destrancada/fechada -> AbrirPorta
+     na porta, aberta              -> Passe
+     já passou                     -> FechePorta
+   Como a árvore não guarda estado, cada resposta depende só do contexto
+   daquele tick.
+
+Compilar e rodar (da raiz do projeto):
+   g++ -std=c++17 -Isource source/teste.cpp source/BehaviorTree.cpp -o teste
+   ./teste
