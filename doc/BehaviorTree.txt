@@ -1,0 +1,77 @@
+BehaviorTree.cpp - Como a implementação foi feita
+==================================================
+
+Arquivo: source/BehaviorTree.cpp
+Contrato: BehaviorTree.hpp
+
+O header já traz as funções auxiliares (Condition, Action, Selector,
+Sequence) que montam a árvore com a sintaxe aninhada. O .cpp implementa os
+construtores e os tick() dos quatro tipos de nó e do BehaviorTree.
+
+A árvore é SEM ESTADO, como exige o contrato: todos os tick() são const,
+nenhum nó guarda nada entre ticks e a árvore é reavaliada a partir da raiz
+toda vez. O resultado depende só do contexto recebido. Também só usa a
+biblioteca padrão, então pode ser testada com um contexto montado à mão.
+
+1. ConditionNode::tick
+   - Procura o nome no contexto e tem sucesso se existe uma entrada com
+     esse nome e valor diferente de zero ("non-zero means true").
+     Qualquer valor diferente de zero conta, inclusive negativo.
+   - Nome ausente = falha. A comparação diferencia maiúsculas e
+     minúsculas.
+   - Não carrega comando (command vazio).
+   - Nenhum nome é especial: "EnemyVisible", "CollisionWall" etc. são
+     buscados exatamente do mesmo jeito que qualquer outro nome.
+   - Se o mesmo nome aparecer mais de uma vez no contexto, basta UMA
+     entrada não-zero para ter sucesso (leitura literal de "contains name
+     with a non-zero value").
+
+2. ActionNode::tick
+   - Sempre sucesso, carregando o seu comando.
+
+3. SequenceNode::tick
+   - Avalia os filhos da esquerda para a direita e PARA no primeiro que
+     falhar (os seguintes nem são avaliados), retornando falha.
+   - Se todos tiverem sucesso, retorna sucesso carregando o ÚLTIMO comando
+     NÃO VAZIO. Exemplo: Sequence(Action("A"), Condition("X")) retorna "A",
+     porque a Condition no final não tem comando e não pode "apagar" o A.
+   - Uma sequência vazia tem sucesso sem comando ("succeeds iff all
+     succeed": com zero filhos, todos tiveram sucesso).
+   - Na falha o comando é vazio. O contrato só define o comando do
+     sucesso, e um nó que falhou nunca tem o comando usado (o Selector o
+     ignora e o tick() da árvore retorna "").
+
+4. SelectorNode::tick
+   - Avalia da esquerda para a direita e PARA no primeiro filho com
+     sucesso, retornando o resultado dele, inclusive o comando (que pode
+     ser vazio, se o filho for uma Condition).
+   - Se todos falharem, falha. Um seletor vazio falha.
+
+5. BehaviorTree::tick
+   - Avalia a raiz. Se ela teve sucesso, retorna o comando dela; se
+     falhou, retorna "" ("no command this tick").
+
+6. Ponteiros nulos
+   - Os construtores não são noexcept, então um filho nulo em
+     Selector/Sequence, ou uma raiz nula no BehaviorTree, lança
+     std::invalid_argument logo na construção. Assim tick() nunca precisa
+     checar ponteiros.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic -Wshadow -Wconversion
+sem warnings, e testado com AddressSanitizer/UBSan. Foram verificados:
+  - Condition: valor 1 e -7 = sucesso; 0, ausente ou com nome em
+    minúsculas = falha; nunca carrega comando;
+  - Action: sempre sucesso, com o comando;
+  - Sequence: carrega o último comando não vazio; falha no primeiro filho
+    que falha; vazia = sucesso;
+  - Selector: o primeiro sucesso decide (mesmo com comando vazio); todos
+    falham = falha; vazio = falha;
+  - curto-circuito: filhos depois do ponto de decisão não são avaliados;
+  - a árvore de exemplo do header, com EnemyVisible, CollisionWall e
+    CollisionEntity: cada contexto gera o comando certo, e a prioridade
+    segue a ordem dos filhos;
+  - sem estado: o mesmo contexto dá sempre a mesma resposta, alternando
+    contextos;
+  - raiz que falha -> ""; ponteiros nulos -> std::invalid_argument.
