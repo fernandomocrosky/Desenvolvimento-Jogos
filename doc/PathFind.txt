@@ -1,0 +1,99 @@
+PathFind.cpp - Como a implementação foi feita
+==============================================
+
+Arquivo: source/PathFind.cpp
+Contrato: PathFind.hpp (e as convenções de Global.hpp)
+
+O header pede o caminho mais curto com A* sobre uma matriz de inteiros em
+ordem row-major (índice = row * width + col). Uma célula é caminhável se e
+somente se o valor dela é EMPTY_TILE, de Global.hpp.
+
+1. Construtor PathFind(grid, width, height)
+   - Guarda apenas o ponteiro: a matriz é REFERENCIADA, não copiada, como
+     diz o contrato. Se a matriz mudar, a busca seguinte já enxerga a mudança.
+   - A matriz precisa continuar existindo enquanto o PathFind for usado. Com
+     um TileMap, data() deixa de valer se o mapa for recarregado
+     (loadFromDungeon ou loadCSV); nesse caso é preciso criar outro PathFind.
+   - O contrato exige width > 0 e height > 0. Como o construtor não é
+     noexcept, a violação lança std::invalid_argument. Um grid nulo também
+     lança, pois nunca seria uma matriz válida.
+
+2. Endpoints: de posição no mundo para célula
+   - Usa a fórmula do contrato: col = floor(x / TILE_SIZE),
+     row = floor(y / TILE_SIZE).
+   - O uso de floor é importante: x = -0.1 vira a coluna -1 (fora do mapa),
+     e um simples cast para int daria a coluna 0.
+   - O intervalo é conferido ANTES de converter para int. Assim, NaN, infinito
+     e valores enormes são rejeitados sem causar uma conversão indefinida.
+   - Retorna um vetor vazio se um dos pontos estiver fora do mapa ou em uma
+     célula não caminhável.
+
+3. O algoritmo A*
+   - A lista aberta é uma std::priority_queue ordenada pelo menor
+     f = g + h, em que g é o custo desde o início e h é a estimativa até o
+     objetivo.
+   - Quando uma célula ganha um custo melhor, ela entra de novo na fila. A
+     entrada antiga é descartada ao sair da fila, pois tem custo maior que o
+     guardado em costFromStart. A busca termina quando o objetivo sai da fila.
+   - Todo o estado (custos, pais e fila) fica em variáveis locais, por isso
+     findPath pode ser const.
+
+4. Custos e heurística
+   - Passo ortogonal custa 1 e passo diagonal custa sqrt(2), que são as
+     distâncias reais entre os centros das células. Inteiros como 10 e 14
+     seriam apenas uma aproximação e poderiam escolher um caminho que não é
+     o mais curto.
+   - A heurística é a distância octile:
+       |dx - dy| + sqrt(2) * min(dx, dy)
+     Esse é o custo exato em um mapa sem paredes, portanto nunca superestima o
+     custo real. É isso que garante que o A* encontre um caminho mais curto.
+
+5. Movimento: 8 vizinhos, sem cortar quinas
+   - Cada célula tem até 8 vizinhos (ortogonais e diagonais).
+   - Um passo diagonal só é aceito se as DUAS células ortogonalmente
+     adjacentes à diagonal também estiverem vazias:
+       de (col, row) para (nextCol, nextRow), (nextCol, row) e (col, nextRow)
+       precisam ser caminháveis.
+     Assim, o caminho nunca corta a quina de uma parede, como pede o contrato.
+
+6. Resultado
+   - Cada célula guarda de onde veio (parent). O caminho é refeito do objetivo
+     até o início e depois invertido, ficando na ordem início -> objetivo.
+   - Cada ponto é o CENTRO de uma célula, em pixels:
+       ((col + 0.5) * TILE_SIZE, (row + 0.5) * TILE_SIZE)
+   - O primeiro ponto é o centro da célula inicial e o último, o da célula
+     final, mesmo se as posições recebidas não estiverem no centro.
+   - Início e objetivo na mesma célula geram um único ponto. O header não
+     trata desse caso, mas é um caminho válido e não deve voltar vazio, pois
+     vazio significa "inalcançável".
+   - Se existirem vários caminhos com o mesmo custo, qualquer um deles pode ser
+     retornado. A mesma entrada gera sempre o mesmo caminho.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic -Wshadow -Wconversion
+sem warnings, e testado com AddressSanitizer/UBSan. Foram verificados:
+  - caminho reto e diagonal, ordem início -> objetivo, mesma célula e pontos
+    fora do centro da célula;
+  - floor nas bordas: x = 63.9 é a coluna 0, x = 64 é a coluna 1 e x = -0.1
+    fica fora do mapa;
+  - pontos fora do mapa, NaN, infinito e valores enormes retornam vazio;
+  - quinas: com uma das duas células ortogonais bloqueada, o caminho dá a volta;
+    com as duas bloqueadas, o objetivo é inalcançável;
+  - valor diferente de EMPTY_TILE (por exemplo, 2) também bloqueia;
+  - matriz não quadrada, para confirmar a ordem row-major;
+  - alterar a matriz muda o resultado seguinte (não há cópia);
+  - parâmetros inválidos no construtor lançam std::invalid_argument.
+
+Comparação com um Dijkstra independente:
+  - 36000 buscas em 6000 mapas aleatórios (18085 com caminho e 3341 sem; nas
+    demais, um dos pontos estava em parede). Em toda busca com caminho, o custo
+    foi igual ao do Dijkstra e cada passo seguiu as regras do contrato. Quando
+    não havia caminho, o resultado foi vazio.
+  - 600 caminhos em dungeons reais (Dungeon2D -> TileMap -> PathFind), com a
+    mesma verificação.
+
+Verificação dos próprios testes: 7 erros foram colocados de propósito no código
+(sem a regra da diagonal, conferindo só um lado da diagonal, diagonal custando 1,
+heurística exagerada, sem inverter o caminho, trunc em vez de floor e "qualquer
+valor que não seja parede é caminhável"). Os testes detectaram os 7.
