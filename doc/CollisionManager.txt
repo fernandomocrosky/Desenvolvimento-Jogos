@@ -1,0 +1,74 @@
+CollisionManager.cpp - Como a implementação foi feita
+=====================================================
+
+Arquivo: source/CollisionManager.cpp
+Header:  source/CollisionManager.hpp (escrito por nós, a partir do enunciado)
+
+O enunciado pede uma "classe gerente de colisão" que mantenha internamente uma
+lista de todas as coisas do jogo e tenha um método que devolva uma lista com os
+pares de coisas que colidiram. A sugestão era que toda coisa tivesse um número
+identificador, e isso já existe: Entity::id, do tipo EntityId de Global.hpp.
+
+1. O que a lista guarda
+   - Um vetor de ponteiros const Entity*. O gerente NÃO é dono das entidades,
+     só as referencia.
+   - Por guardar ponteiros, ele sempre enxerga a posição e o tamanho ATUAIS
+     de cada entidade. Não há nada para sincronizar a cada quadro: o jogo
+     move as coisas e o gerente já vê o movimento.
+   - A contrapartida: a entidade precisa continuar viva, no mesmo endereço,
+     até ser removida. No jogo, as coisas ficam em std::unique_ptr, então o
+     endereço não muda quando o vetor cresce.
+
+2. Identificadores
+   - newId() devolve INITIAL_ENTITY_ID (1000), depois 1001, 1002 e assim por
+     diante. Como PLAYER_ID (100) fica abaixo dessa faixa, nunca há conflito
+     com o jogador.
+   - clear() esvazia a lista, mas NÃO reinicia o contador. Assim, um id usado
+     num nível anterior nunca volta a aparecer.
+
+3. add / remove / contains / size / clear
+   - add(entity) registra a entidade pelo id dela. Um id repetido lança
+     std::invalid_argument, porque dois objetos com o mesmo id tornariam os
+     pares ambíguos.
+   - remove(id) devolve false se o id não estava registrado, em vez de lançar
+     exceção, porque remover algo que já saiu não é um erro grave.
+
+4. findCollisions(): os pares que colidiram
+   - Considera só as entidades com active == true. Uma coisa "morta" no
+     passo atual já deixa de colidir antes mesmo de ser removida.
+   - Usa a caixa de cada entidade (Entity::bounds) e o teste
+     AABB::intersects do Collision2D. Encostar conta como colisão, igual ao
+     Collision2D.
+   - Não testa todos contra todos (n²). Usa SORT-AND-SWEEP:
+       a) ordena as caixas pela borda esquerda (min.x);
+       b) para cada caixa i, só olha as caixas j seguintes enquanto
+          j.min.x <= i.max.x. A partir daí, nenhuma outra caixa alcança i no
+          eixo x, então o laço para.
+     Com as coisas espalhadas pelo mapa, cada caixa só é comparada com as
+     vizinhas.
+   - Cada par sai com o menor id primeiro (first < second), e a lista é
+     ordenada. Assim o resultado é determinístico e fácil de comparar em
+     testes.
+
+5. Uso no jogo (source/jogo.cpp)
+   - Toda coisa criada recebe um id de newId() e é registrada com add().
+   - A cada passo, o jogo chama findCollisions() e trata cada par conforme os
+     tipos: jogador × gema dá pontos, tiro × Espectro tira vida e assim por
+     diante.
+   - Um std::unordered_map<EntityId, Coisa*> converte o id de volta para a
+     coisa.
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic, sem warnings, e testado
+com AddressSanitizer/UBSan. Foram verificados:
+  - newId começa em INITIAL_ENTITY_ID e incrementa de 1 em 1;
+  - add com id repetido lança std::invalid_argument;
+  - caixas que só se encostam formam um par; caixas afastadas não formam;
+  - uma entidade inativa não aparece em nenhum par e volta a aparecer quando
+    fica ativa de novo;
+  - três caixas sobrepostas geram os três pares, cada um uma vez só;
+  - remove, contains, size e clear (remover duas vezes devolve false);
+  - teste aleatório: 2000 cenários com até 60 caixas de tamanhos e posições
+    sorteadas, cerca de 1/5 delas inativas. O resultado foi comparado com uma
+    força bruta (todos contra todos) e bateu em todos os casos.

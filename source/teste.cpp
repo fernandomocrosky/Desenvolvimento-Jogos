@@ -2,7 +2,12 @@
 // porta que pode estar trancada, fechada ou aberta.
 //
 // Compilar (da raiz do projeto):
-//   g++ -std=c++17 -Isource source/teste.cpp source/BehaviorTree.cpp -o teste
+//   g++ -std=c++17 -DRODAR_TESTE -Isource source/teste.cpp source/BehaviorTree.cpp -o teste
+//
+// Este arquivo só é compilado com -DRODAR_TESTE. Sem isso ele fica vazio, para
+// que compilar a pasta source inteira gere um único programa: o jogo (jogo.cpp).
+
+#ifdef RODAR_TESTE
 
 #include <iostream>
 
@@ -45,3 +50,5 @@ int main() {
     }
     return 0;
 }
+
+#endif // RODAR_TESTE

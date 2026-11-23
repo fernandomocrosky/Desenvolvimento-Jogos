@@ -5,3 +5,5 @@ output/
 build.sh
 doc/main.txt
 .gitattributes
+source/cripta
+source/build/

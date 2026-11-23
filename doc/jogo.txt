@@ -1,0 +1,204 @@
+jogo.cpp - CRIPTA: como o jogo foi feito
+========================================
+
+Arquivo: source/jogo.cpp (SFML 2.x)
+
+Cripta é um jogo de exploração de masmorra visto de cima. O jogador explora
+uma masmorra gerada proceduralmente, recolhe gemas, enfrenta os Espectros e
+procura a escada para descer ao próximo nível, que é maior e mais perigoso.
+
+Controles
+  Setas  : mover (personagem controlado pelas teclas de seta)
+  Espaço : atirar na direção em que andou por último
+  Shift/Z: dash (arrancada rápida e invulnerável, para desviar)
+  R      : recomeçar depois do fim de jogo
+  ESC    : sair
+
+Compilar: basta compilar a pasta source inteira (requer C++17 e SFML 2.x)
+  Dentro de source/, qualquer uma das três formas funciona:
+    a) g++ -std=c++17 -O2 *.cpp -lsfml-graphics -lsfml-window -lsfml-system -o cripta
+    b) make
+    c) cmake -S . -B build && cmake --build build
+  Depois: ./cripta (ou ./build/cripta no caso do CMake).
+
+  Para isso dar certo, os programas de exemplo teste.cpp e teste2.cpp têm o
+  código todo dentro de #ifdef RODAR_TESTE. Sem essa opção eles ficam vazios,
+  e a pasta gera um único main(): o do jogo. Para rodar um teste, compile com
+  -DRODAR_TESTE (a linha exata está no comentário do topo de cada arquivo).
+  Foi testado copiando só a pasta source para um diretório vazio e compilando
+  pelas três formas.
+
+  Use SFML 2.x, não 3: o NPC.hpp do contrato usa um sf::Sprite sem textura no
+  construtor, que o SFML 3 não permite. A fonte do placar é procurada no
+  sistema (DejaVuSans no Linux, Arial no Windows). Se não houver nenhuma, o
+  placar aparece no título da janela.
+
+
+Requisitos do trabalho e onde cada um está
+------------------------------------------
+
+1. Cenário: gerador de masmorra + representação em matriz (TileMap)
+   - Cada nível cria um Dungeon2D de 40x30 tiles com uma semente aleatória e
+     chama generate(). Depois, TileMap::loadFromDungeon rasteriza a masmorra
+     na matriz.
+   - As paredes (WALL_TILE) bloqueiam o movimento. A colisão com o cenário
+     consulta a matriz: tocaParede() converte a caixa da coisa em células
+     com toIndices().
+   - O movimento é resolvido em x e em y separadamente. Por isso, encostado
+     numa parede, o jogador desliza em vez de grudar.
+   - O piso é desenhado uma vez por nível, num sf::VertexArray. As paredes
+     que encostam no piso ganham uma cor mais clara.
+   - A câmera (sf::View) segue o jogador sem mostrar a área fora do mapa.
+
+2. Placar (texto simples): vidas e pontos
+   - Barra no topo da tela com "Vidas: N   Pontos: N   Nível: N". Usa a
+     fonte DejaVuSans do sistema.
+   - Se nenhuma fonte for encontrada, o placar vai para o título da janela.
+   - Pontos: gema +50, Espectro derrotado +100, descer a escada +500.
+   - Vidas: começa com 3 e vai no máximo até 5. Ao levar dano, o jogador
+     perde 1, é empurrado para longe e fica 1,5 s invulnerável, piscando.
+     Com 0 vidas, aparece a tela de FIM DE JOGO.
+
+3. Inimigo: o Espectro (struct Espectro : Coisa : NPC)
+   O que é: um fantasma que assombra a masmorra.
+   O que faz: vaga pelas salas, persegue o jogador quando o vê e atira bolas
+   de fogo quando está perto. Encostar nele tira uma vida, e dois tiros o
+   derrotam.
+   - A decisão vem da BehaviorTree, avaliada a cada passo:
+         Selector(
+           Sequence(JogadorVisivel, JogadorPerto, ArmaPronta) -> "Atirar"
+           Sequence(JogadorVisivel)                           -> "Perseguir"
+           Sequence(TemDestino)                               -> "Vagar"
+           Action                                             -> "EscolherDestino"
+         )
+   - O contexto é montado a cada passo:
+       JogadorVisivel: até 9 tiles de distância e com linha de visão livre,
+                       conferida andando pelo segmento de 16 em 16 px na
+                       matriz;
+       JogadorPerto:   até 6 tiles;
+       ArmaPronta:     a recarga de 1,8 s acabou;
+       TemDestino:     ainda há pontos do caminho para seguir.
+   - Perseguir usa o PathFind (A*) até a posição do jogador, recalculado no
+     máximo a cada 0,4 s. Quando perde o jogador de vista, o Espectro vai até
+     o último lugar onde o viu, porque continua seguindo o caminho antigo.
+   - EscolherDestino sorteia uma célula vazia próxima, em até 8 tiles, e
+     calcula o caminho até ela com o A*.
+   - O Espectro segue os pontos do caminho, que são centros de células. Como
+     o A* não corta quinas, ele nunca entra na parede.
+   - A cada nível aparecem mais Espectros: 3 + 2 x nível, no máximo 15.
+
+4. Gerente de colisão (CollisionManager): ver doc/CollisionManager.txt
+   - Toda coisa do jogo tem um número identificador. O jogador usa
+     PLAYER_ID, e o resto recebe newId() a partir de INITIAL_ENTITY_ID.
+   - O gerente guarda a lista de todas as coisas. A cada passo,
+     findCollisions() devolve os pares (idA, idB) que colidiram.
+   - tratarColisoes() converte cada id de volta para a coisa com um
+     unordered_map e decide o que acontece pelo par de tipos:
+       jogador × Espectro / espinho / bola de fogo -> perde vida
+       jogador × gema                              -> +50 pontos, a gema some
+       jogador × coração                           -> +1 vida (se < 5), some
+       jogador × escada                            -> próximo nível
+       tiro do jogador × Espectro                  -> Espectro perde 1 de vida
+   - As coisas consumidas ficam com active = false e saem do gerente no fim do
+     passo (removerInativos). Assim nada é apagado no meio do laço.
+
+5. Física: salas de vento (e atrito)
+   - Cerca de 1/3 das salas, nunca a inicial, são salas de vento. Cada uma
+     tem uma direção sorteada (direita, esquerda, cima ou baixo) e força de
+     900 px/s².
+   - Na tela, essas salas aparecem com um véu azulado e riscos que correm na
+     direção do vento. O placar mostra "~ vento ~" enquanto o jogador está
+     numa delas.
+   - O jogador é movido por FORÇAS, não por velocidade fixa:
+         aceleração = setas x 2000 - velocidade x 7 (atrito) + vento
+     O RigidBody2D integra essa aceleração com Euler semi-implícito e passo
+     fixo de 1/60 s. Andar contra o vento fica mais lento e andar a favor
+     fica mais rápido. Parado dentro da sala, o jogador é arrastado.
+   - Os projéteis também sofrem o vento: um tiro que atravessa a sala faz uma
+     curva.
+
+6. Projéteis
+   - Tiro do jogador: amarelo, 650 px/s, um a cada 0,25 s, dura 1,5 s.
+   - Bola de fogo do Espectro: laranja, 320 px/s, mirada no jogador, dura 3 s.
+   - Os dois são struct Projetil : Coisa e somem ao bater na parede (consulta
+     ao TileMap) ou quando o tempo acaba.
+
+7. Itens espalhados pelo cenário
+   - Gema (recompensa): 10 por nível, +50 pontos.
+   - Coração (recompensa): 2 por nível, +1 vida.
+   - Espinhos (armadilha a evitar): 4 + nível, tiram uma vida ao pisar.
+   - Escada: fica na sala mais distante do início e leva ao próximo nível.
+   - As posições vêm de TileMap::randomEmptyCell, sem empilhar dois itens na
+     mesma célula. Espinhos e corações ficam a pelo menos 4 tiles do início, e
+     os Espectros a pelo menos 8, para o jogador não começar levando dano.
+
+
+Extras de jogabilidade
+----------------------
+
+Dash (desviar dos inimigos)
+  - Ao APERTAR Shift (ou Z), o jogador arranca a 950 px/s na direção da mira
+    durante 0,16 s. A tecla dispara na borda: o jogo guarda se ela já estava
+    apertada no passo anterior, então segurar não repete o dash.
+  - Durante o dash, o jogador fica invulnerável: ferirJogador() ignora o dano
+    se dash > 0. Assim, dá para atravessar Espectros, bolas de fogo e
+    espinhos. As paredes continuam bloqueando, porque o movimento ainda usa
+    moverComParedes.
+  - O dash ignora as setas e o vento. No fim, o jogador sai na velocidade
+    máxima normal (2000 / 7) para a transição não ser brusca.
+  - Recarga de 0,8 s. O placar mostra "Dash: pronto" ou uma barra enchendo.
+  - Visual: faíscas azuis no início e um rastro de cópias do jogador que se
+    apagam em 0,25 s.
+
+Feedback de dano nos inimigos
+  - Quando o tiro acerta, o Espectro:
+      * pisca vermelho e "incha" 25% por 0,15 s;
+      * recua na direção do tiro (380 px/s, diminuindo 15% por passo), sem
+        atravessar parede, porque também usa moverComParedes;
+      * fica atordoado 0,22 s: não consulta a árvore de comportamento, então
+        não anda nem atira. Depois disso, recalcula o caminho do A* a partir
+        de onde parou;
+      * solta faíscas amarelas.
+  - Depois do primeiro tiro, ele fica rosado, mostrando que está ferido.
+  - Ao morrer, explode em partículas roxas e brancas e aparece um "+100"
+    subindo.
+  - Pegar gema ou coração também solta partículas e mostra "+50" ou
+    "+1 vida". Levar dano faz a tela tremer, solta partículas vermelhas e
+    mostra "-1 vida".
+  - Partículas, textos e rastros são só efeitos visuais: ficam em vetores
+    próprios, não são entidades e não passam pelo gerente de colisão.
+
+
+Organização do código
+---------------------
+- struct Coisa : NPC acrescenta um Tipo. Jogador, Espectro e Projetil herdam
+  de Coisa com os seus dados próprios. Gema, coração, espinho e escada são
+  Coisas simples.
+- Os sprites usam texturas desenhadas por código (sf::RenderTexture com
+  círculos e polígonos), então o jogo não depende de arquivos de imagem.
+- O GameLoop usa passo fixo com acumulador, como no teste2: a física roda
+  sempre com dt = 1/60 s, independente do FPS.
+- Cada passo faz, em ordem: jogador -> Espectros e projéteis -> colisões ->
+  remoção dos inativos -> troca de nível, se o jogador chegou na escada.
+
+
+Testes
+------
+Compilado com g++ -std=c++17 -Wall -Wextra -Wpedantic, sem warnings.
+Para testar sem jogar manualmente, uma cópia do jogo teve as teclas trocadas
+por um "robô": ele segue o A* até a escada e atira o tempo todo. Foram
+simulados 4 minutos de jogo (14400 passos) com AddressSanitizer/UBSan, e a
+cada passo foi conferido:
+  - o jogador nunca fica dentro de uma parede;
+  - nenhum Espectro entra numa parede;
+  - o gerente de colisão, o vetor de coisas e o mapa de ids têm sempre o
+    mesmo número de elementos, ou seja, nada vaza nem sobra ao remover.
+Na segunda rodada, com o dash e o recuo dos inimigos, o robô também apertou
+Z periodicamente: foram 120 dashes e 81 acertos em Espectros, e nenhum
+Espectro empurrado ficou dentro da parede.
+Resultado: nenhum erro de memória nem comportamento indefinido. O robô desceu
+de nível, morreu e recomeçou várias vezes, o que exercitou escada, dano,
+vidas, fim de jogo e recomeço. As bolas de fogo dos Espectros apareceram
+durante a simulação.
+Também foram tiradas capturas de tela do jogo, da sala de vento e da tela de
+FIM DE JOGO para conferir o desenho e o placar.

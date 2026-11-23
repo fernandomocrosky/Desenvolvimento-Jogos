@@ -5,10 +5,15 @@
 // Collision2D (tamanho) e BehaviorTree (decisão).
 //
 // Compilar (da raiz do projeto, com o SFML 2.x instalado):
-//   g++ -std=c++17 -Isource source/teste2.cpp source/BehaviorTree.cpp
+//   g++ -std=c++17 -DRODAR_TESTE -Isource source/teste2.cpp source/BehaviorTree.cpp
 //       source/RigidBody2D.cpp source/Collision2D.cpp source/Vector2D.cpp
 //       -lsfml-graphics -lsfml-window -lsfml-system -o teste2
 //   (tudo numa linha só)
+//
+// Este arquivo só é compilado com -DRODAR_TESTE. Sem isso ele fica vazio, para
+// que compilar a pasta source inteira gere um único programa: o jogo (jogo.cpp).
+
+#ifdef RODAR_TESTE
 
 #include <string>
 #include <vector>
@@ -173,3 +178,5 @@ int main() {
     }
     return 0;
 }
+
+#endif // RODAR_TESTE
